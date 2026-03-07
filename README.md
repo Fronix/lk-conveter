@@ -127,6 +127,10 @@ lk-converter/
     shared/             # Shared types
 ```
 
+## Disclaimer
+
+This project was written with the assistance of AI. Use at your own risk.
+
 ## License
 
 MIT
