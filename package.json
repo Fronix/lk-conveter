@@ -1,0 +1,28 @@
+{
+  "name": "lk-converter",
+  "version": "1.0.0",
+  "description": "Bidirectional LegendKeeper (.lk) ↔ Markdown converter",
+  "type": "module",
+  "bin": {
+    "lk-converter": "./dist/cli.js"
+  },
+  "scripts": {
+    "lk2md": "tsx src/cli.ts lk2md",
+    "md2lk": "tsx src/cli.ts md2lk",
+    "verify": "tsx src/cli.ts verify",
+    "build": "tsc",
+    "lint": "biome check src/",
+    "lint:fix": "biome check --write src/",
+    "format": "biome format --write src/"
+  },
+  "dependencies": {
+    "commander": "^12.0.0",
+    "yaml": "^2.4.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.6",
+    "@types/node": "^20.0.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  }
+}
