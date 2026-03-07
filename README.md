@@ -1,65 +1,84 @@
 # lk-converter
 
-Bidirectional LegendKeeper (`.lk`) ↔ Markdown converter for lossless round-tripping.
+Bidirectional [LegendKeeper](https://www.legendkeeper.com/) (`.lk`) ↔ Markdown converter for lossless round-tripping.
 
-## Setup
+Convert `.lk` export files into human-readable markdown, edit them with any tool, then convert back for re-import — without losing data.
+
+## Installation
 
 ```bash
+git clone https://github.com/YOUR_USERNAME/lk-converter.git
 cd lk-converter
 pnpm install
+pnpm build
 ```
 
-## Workflow
+### Global CLI via `pnpm link`
 
-1. Export `.lk` files from LegendKeeper
-2. Drop them into `lk-converter/imports/`
-3. Convert to markdown:
-   ```bash
-   pnpm lk2md imports/Compendium.lk    # → ../Compendium/
-   pnpm lk2md imports/Players.lk       # → ../Players/
-   pnpm lk2md imports/Sessions.lk      # → ../Sessions/
-   ```
-4. Edit markdown files (with Claude or any editor)
-5. Convert back to `.lk`:
-   ```bash
-   pnpm md2lk ../Compendium            # → for-import/Compendium.lk
-   pnpm md2lk ../Players               # → for-import/Players.lk
-   ```
-6. Import `.lk` from `for-import/` back into LegendKeeper
-
-## Commands
+After building, you can make `lk-converter` available as a global command:
 
 ```bash
-# Convert .lk → markdown
+pnpm link --global
+```
+
+Now you can run it from anywhere:
+
+```bash
+lk-converter lk2md ~/exports/Compendium.lk -o ./output/
+lk-converter md2lk ./output/Compendium/ -o reimport.lk
+lk-converter verify ~/exports/Compendium.lk
+```
+
+To unlink later:
+
+```bash
+pnpm unlink --global
+```
+
+### Without linking
+
+You can also run commands directly inside the project using `pnpm`:
+
+```bash
 pnpm lk2md <path-to-.lk-file> [-o output-dir]
-
-# Convert markdown → .lk
 pnpm md2lk <markdown-dir> [-o output-file]
-
-# Verify round-trip integrity
 pnpm verify <path-to-.lk-file>
 ```
 
-## Directory Structure
+## Usage
 
+### Convert `.lk` to Markdown
+
+```bash
+lk-converter lk2md <path-to-.lk-file> [-o output-dir]
 ```
-lk-converter/
-  imports/          # Drop .lk files here
-  for-import/       # Generated .lk files for re-import
-  src/
-    cli.ts          # CLI entry point
-    verify.ts       # Round-trip verification
-    lk2md/          # .lk → markdown conversion
-    md2lk/          # markdown → .lk conversion
-    shared/         # Shared types
+
+Extracts all resources and documents into a directory of markdown files with YAML frontmatter.
+
+### Convert Markdown to `.lk`
+
+```bash
+lk-converter md2lk <markdown-dir> [-o output-file]
 ```
+
+Reassembles a markdown directory back into a `.lk` file ready for import into LegendKeeper.
+
+### Verify round-trip integrity
+
+```bash
+lk-converter verify <path-to-.lk-file>
+```
+
+Runs a full round-trip (`.lk` → markdown → `.lk`) and reports any differences.
 
 ## Markdown Format
 
 ### Frontmatter
-Resource metadata stored under `lk:` namespace in YAML frontmatter.
+
+Resource metadata is stored under a `lk:` namespace in YAML frontmatter.
 
 ### Directives (`:::`)
+
 | LK Element | Markdown |
 |---|---|
 | Panel | `:::panel-success` / `:::panel-info` / `:::panel-warning` / `:::panel-error` / `:::panel-note` |
@@ -69,6 +88,7 @@ Resource metadata stored under `lk:` namespace in YAML frontmatter.
 | Extension | `:::extension` |
 
 ### Inline Elements
+
 | Element | Syntax |
 |---|---|
 | Cross-reference | `@[Display Name](lk://document-id)` |
@@ -81,25 +101,32 @@ Resource metadata stored under `lk:` namespace in YAML frontmatter.
 | Link | `[text](url)` |
 
 ### Metadata Comments
+
 - `<!-- lk-media: {...} -->` — image/media attributes
 - `<!-- lk-table: {...} -->` — table structure with raw row data
 - `<!-- lk-mention: {...} -->` — mention attributes
 - `<!-- lk-pm: [...] -->` — raw ProseMirror content for complex inline marks
 
 ### Multi-document Resources
-Documents separated by `<!-- lk-doc: TabName -->`.
+
+Documents are separated by `<!-- lk-doc: TabName -->`.
 
 ### Skipped Document Types
+
 Map, timeline, and board documents are stored raw in `_lk_meta.json` and passed through unchanged.
 
-## Verify Results
+## Project Structure
 
-The verify command tests lossless round-tripping (`.lk` → md → `.lk` → compare):
+```
+lk-converter/
+  src/
+    cli.ts              # CLI entry point
+    verify.ts           # Round-trip verification
+    lk2md/              # .lk → markdown conversion
+    md2lk/              # markdown → .lk conversion
+    shared/             # Shared types
+```
 
-| File | Resources | Documents | Remaining Diffs |
-|---|---|---|---|
-| Compendium.lk | 449 | 549 | 14 (1 resource) |
-| Players.lk | 25 | 38 | 3 |
-| Sessions.lk | 60 | 61 | 3 |
+## License
 
-Remaining diffs are markdown ambiguity edge cases (paragraph text starting with `1.` or `- ` being re-parsed as lists, trailing whitespace in text nodes).
+MIT
