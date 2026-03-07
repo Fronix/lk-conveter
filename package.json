@@ -10,6 +10,8 @@
     "lk2md": "tsx src/cli.ts lk2md",
     "md2lk": "tsx src/cli.ts md2lk",
     "verify": "tsx src/cli.ts verify",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "build": "tsc",
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
@@ -23,6 +25,7 @@
     "@biomejs/biome": "^2.4.6",
     "@types/node": "^20.0.0",
     "tsx": "^4.7.0",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "vitest": "^4.0.18"
   }
 }
