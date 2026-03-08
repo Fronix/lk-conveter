@@ -34,8 +34,8 @@ program
   .command('md2lk')
   .description('Convert markdown files back to a .lk file')
   .argument(
-    '<input-dir>',
-    'Directory containing markdown files with _lk_meta.json',
+    '<input>',
+    'Directory containing markdown files, or a single .md file',
   )
   .option(
     '-o, --output <file>',
@@ -45,13 +45,15 @@ program
     '-s, --source <name>',
     'Source name to export (default: inferred from input directory name)',
   )
-  .action((inputDir: string, opts: { output?: string; source?: string }) => {
-    const inputPath = resolve(inputDir);
-    const dirName = basename(inputPath);
+  .action((input: string, opts: { output?: string; source?: string }) => {
+    const inputPath = resolve(input);
+    const inferredName = inputPath.endsWith('.md')
+      ? basename(inputPath, '.md')
+      : basename(inputPath);
     const outputPath = opts.output
       ? resolve(opts.output)
-      : resolve('for-import', `${dirName}.lk`);
-    const sourceName = opts.source || dirName;
+      : resolve('for-import', `${inferredName}.lk`);
+    const sourceName = opts.source || inferredName;
     mkdirSync(dirname(outputPath), { recursive: true });
     md2lk(inputPath, outputPath, sourceName);
   });

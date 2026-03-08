@@ -13,10 +13,14 @@ import { parseFrontmatter, splitDocumentSections } from './frontmatter.js';
 import { mdToProsemirror } from './md-to-prosemirror.js';
 
 export function md2lk(
-  inputDir: string,
+  inputPath: string,
   outputPath: string,
   sourceName: string,
 ): void {
+  // Determine if input is a file or directory
+  const inputStat = statSync(inputPath);
+  const inputDir = inputStat.isDirectory() ? inputPath : dirname(inputPath);
+
   // Read _lk_meta.json — search inputDir and ancestors
   const metaPath = findMetaFile(inputDir);
   if (!metaPath) {
@@ -50,10 +54,11 @@ export function md2lk(
     );
   }
 
-  console.log(`Reading markdown files from ${inputDir}...`);
+  const isSingleFile = inputStat.isFile();
+  console.log(`Reading markdown files from ${inputPath}...`);
 
-  // Find all .md files recursively
-  const mdFiles = findMdFiles(inputDir);
+  // Find all .md files — single file or recursive directory scan
+  const mdFiles = isSingleFile ? [inputPath] : findMdFiles(inputDir);
   console.log(`Found ${mdFiles.length} markdown files`);
 
   // Parse each file into a resource
@@ -70,8 +75,12 @@ export function md2lk(
     }
 
     // Filter by source — skip resources from other .lk exports
+    // When converting a single file, skip the filter (user explicitly chose this file)
     const fileSource = lk.source as string | undefined;
-    if (fileSource && fileSource !== sourceName) {
+    if (!isSingleFile && fileSource && fileSource !== sourceName) {
+      console.warn(
+        `Skipping ${filePath}: source "${fileSource}" does not match "${sourceName}"`,
+      );
       continue;
     }
 
