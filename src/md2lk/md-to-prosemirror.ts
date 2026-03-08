@@ -478,7 +478,7 @@ class MarkdownParser {
       }
 
       const subParser = new MarkdownParser(itemLines);
-      const content = subParser.parseBlocks();
+      const content = sanitizeListItemContent(subParser.parseBlocks());
       items.push({ type: 'listItem', content });
     }
 
@@ -515,7 +515,7 @@ class MarkdownParser {
       }
 
       const subParser = new MarkdownParser(itemLines);
-      const content = subParser.parseBlocks();
+      const content = sanitizeListItemContent(subParser.parseBlocks());
       items.push({ type: 'listItem', content });
     }
 
@@ -974,4 +974,36 @@ function marksEqual(
     if (JSON.stringify(a[i].attrs) !== JSON.stringify(b[i].attrs)) return false;
   }
   return true;
+}
+
+// LK's listItem schema only allows: paragraph, bulletList, orderedList,
+// mediaSingle, codeBlock, extension, bodiedExtension.
+// Unwrap disallowed block types (e.g. blockquote, heading) into their content.
+const VALID_LIST_ITEM_TYPES = new Set([
+  'paragraph',
+  'bulletList',
+  'orderedList',
+  'taskList',
+  'mediaSingle',
+  'codeBlock',
+  'extension',
+  'bodiedExtension',
+]);
+
+function sanitizeListItemContent(
+  nodes: ProseMirrorNode[],
+): ProseMirrorNode[] {
+  const result: ProseMirrorNode[] = [];
+  for (const node of nodes) {
+    if (VALID_LIST_ITEM_TYPES.has(node.type)) {
+      result.push(node);
+    } else if (node.content) {
+      // Unwrap: insert child nodes (e.g. blockquote → its paragraphs)
+      result.push(...sanitizeListItemContent(node.content));
+    } else {
+      // Fallback: wrap text-like nodes in a paragraph
+      result.push({ type: 'paragraph', content: [node] });
+    }
+  }
+  return result;
 }
