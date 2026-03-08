@@ -126,6 +126,11 @@ class MarkdownParser {
       return this.parseBlockquote();
     }
 
+    // Task list (must be checked before bullet list since `- [ ]` also matches `- `)
+    if (line.match(/^- \[[ xX]\]\s/)) {
+      return this.parseTaskList();
+    }
+
     // Bullet list
     if (line.match(/^[-*]\s/)) {
       return this.parseBulletList();
@@ -134,11 +139,6 @@ class MarkdownParser {
     // Ordered list
     if (line.match(/^\d+\.\s/)) {
       return this.parseOrderedList();
-    }
-
-    // Task list
-    if (line.match(/^- \[[ xX]\]\s/)) {
-      return this.parseTaskList();
     }
 
     // Code block
@@ -556,7 +556,7 @@ class MarkdownParser {
       items.push({
         type: 'taskItem',
         attrs: taskAttrs,
-        content: [{ type: 'paragraph', content }],
+        content,
       });
     }
 

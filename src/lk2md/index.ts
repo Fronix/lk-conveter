@@ -1,10 +1,9 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { stringify as yamlStringify } from 'yaml';
 import type {
   LkDocument,
   LkMeta,
-  LkMetaMulti,
   LkResource,
   SkippedDocument,
 } from '../shared/types.js';
@@ -86,7 +85,7 @@ export function lk2md(
     writtenCount++;
   }
 
-  // Write _lk_meta.json (multi-source: merge with existing)
+  // Write _lk_meta.json into the source's own directory
   const sourceMeta: LkMeta = {
     version: data.version,
     exportId: data.exportId,
@@ -97,25 +96,12 @@ export function lk2md(
     skippedDocuments,
   };
 
-  const metaPath = `${outputDir}/_lk_meta.json`;
-  mkdirSync(dirname(metaPath), { recursive: true });
+  // Determine where this source's files live — common ancestor of all written files
+  const metaDir = findCommonDir(allNodes.map((n) => dirname(n.filePath)));
+  const metaPath = `${metaDir}/_lk_meta.json`;
+  mkdirSync(metaDir, { recursive: true });
 
-  // Read existing meta and merge
-  let multiMeta: LkMetaMulti = { sources: {} };
-  if (existsSync(metaPath)) {
-    try {
-      const existing = JSON.parse(readFileSync(metaPath, 'utf-8'));
-      if (existing.sources) {
-        multiMeta = existing as LkMetaMulti;
-      } else {
-        // Migrate old single-source format
-        multiMeta = { sources: { [sourceName]: existing as LkMeta } };
-      }
-    } catch {}
-  }
-  multiMeta.sources[sourceName] = sourceMeta;
-
-  writeFileSync(metaPath, JSON.stringify(multiMeta, null, 2), 'utf-8');
+  writeFileSync(metaPath, JSON.stringify(sourceMeta, null, 2), 'utf-8');
 
   console.log(
     `Written ${writtenCount} markdown files, ${skippedCount} documents skipped (map/time/board)`,
@@ -138,6 +124,7 @@ function buildFrontmatter(
   const lk: Record<string, unknown> = {
     source: sourceName,
     id: resource.id,
+    name: resource.name,
     schemaVersion: resource.schemaVersion,
     pos: resource.pos,
     iconColor: resource.iconColor,
@@ -153,23 +140,31 @@ function buildFrontmatter(
   if (resource.parentId) lk.parentId = resource.parentId;
   if (resource.createdBy) lk.createdBy = resource.createdBy;
 
-  // Document metadata (IDs, timestamps — content is in the body)
-  lk.documents = convertibleDocs.map((doc) => ({
-    id: doc.id,
-    name: doc.name,
-    type: doc.type,
-    pos: doc.pos,
-    isFirst: doc.isFirst,
-    isHidden: doc.isHidden,
-    locatorId: doc.locatorId,
-    createdAt: doc.createdAt,
-    updatedAt: doc.updatedAt,
-    presentation: doc.presentation,
-    transforms: doc.transforms,
-    sources: doc.sources,
-  }));
+  // Document metadata (all properties except content, which goes in the body)
+  lk.documents = convertibleDocs.map((doc) => {
+    const { content: _content, ...meta } = doc;
+    return meta;
+  });
 
   fm.lk = lk;
 
   return fm;
+}
+
+function findCommonDir(dirs: string[]): string {
+  if (dirs.length === 0) return '.';
+  const resolved = dirs.map((d) => resolve(d));
+  const parts = resolved[0].split(/[\\/]/);
+  let common = parts.length;
+  for (const dir of resolved.slice(1)) {
+    const p = dir.split(/[\\/]/);
+    common = Math.min(common, p.length);
+    for (let i = 0; i < common; i++) {
+      if (parts[i] !== p[i]) {
+        common = i;
+        break;
+      }
+    }
+  }
+  return parts.slice(0, common).join('/');
 }

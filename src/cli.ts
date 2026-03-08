@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { mkdirSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { Command } from 'commander';
 import { lk2md } from './lk2md/index.js';
 import { md2lk } from './md2lk/index.js';
@@ -20,14 +20,12 @@ program
     '<input...>',
     'Path(s) to .lk file(s) — supports globs like imports/*.lk',
   )
-  .option('-o, --output <dir>', 'Output directory (default: ../<export-name>)')
+  .option('-o, --output <dir>', 'Output directory (default: current directory)')
   .action((inputs: string[], opts: { output?: string }) => {
     for (const input of inputs) {
       const inputPath = resolve(input);
       const sourceName = basename(inputPath, '.lk');
-      const outputDir = opts.output
-        ? resolve(opts.output)
-        : resolve('..', sourceName);
+      const outputDir = opts.output ? resolve(opts.output) : resolve('.');
       lk2md(inputPath, outputDir, sourceName);
     }
   });
@@ -45,7 +43,7 @@ program
   )
   .option(
     '-s, --source <name>',
-    'Source name to export (default: inferred from output filename)',
+    'Source name to export (default: inferred from input directory name)',
   )
   .action((inputDir: string, opts: { output?: string; source?: string }) => {
     const inputPath = resolve(inputDir);
@@ -53,8 +51,8 @@ program
     const outputPath = opts.output
       ? resolve(opts.output)
       : resolve('for-import', `${dirName}.lk`);
-    const sourceName = opts.source || basename(outputPath, '.lk');
-    mkdirSync(resolve('for-import'), { recursive: true });
+    const sourceName = opts.source || dirName;
+    mkdirSync(dirname(outputPath), { recursive: true });
     md2lk(inputPath, outputPath, sourceName);
   });
 

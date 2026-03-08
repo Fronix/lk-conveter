@@ -57,6 +57,8 @@ export interface LkDocument {
   sources: unknown[];
   presentation: LkPresentation;
   content: ProseMirrorNode;
+  // Allow extra properties from LK (e.g. isFullWidth, calendarId)
+  [key: string]: unknown;
 }
 
 export interface LkPresentation {

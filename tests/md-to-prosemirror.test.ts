@@ -195,6 +195,17 @@ describe('mdToProsemirror', () => {
     expect(nodes[0].content?.[1].attrs?.state).toBe('DONE');
   });
 
+  it('task items contain inline nodes directly, not wrapped in paragraph', () => {
+    const md = '- [ ] Do this\n- [x] Done that\n';
+    const nodes = getContent(md);
+    expect(nodes[0].type).toBe('taskList');
+    const firstItem = nodes[0].content?.[0];
+    expect(firstItem?.type).toBe('taskItem');
+    // Content should be inline nodes (text), NOT paragraph wrappers
+    expect(firstItem?.content?.[0].type).toBe('text');
+    expect(firstItem?.content?.[0].text).toBe('Do this');
+  });
+
   it('parses mixed inline marks in a paragraph', () => {
     const nodes = getContent('Hello **bold** and *italic*\n');
     expect(nodes[0].type).toBe('paragraph');

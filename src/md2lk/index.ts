@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import type {
   LkDocument,
   LkExport,
@@ -7,6 +7,7 @@ import type {
   LkMetaMulti,
   LkResource,
 } from '../shared/types.js';
+// LkMetaMulti kept for backward compat with old meta files
 import { compressLk } from './compress.js';
 import { parseFrontmatter, splitDocumentSections } from './frontmatter.js';
 import { mdToProsemirror } from './md-to-prosemirror.js';
@@ -16,8 +17,14 @@ export function md2lk(
   outputPath: string,
   sourceName: string,
 ): void {
-  // Read _lk_meta.json (multi-source format)
-  const metaPath = join(inputDir, '_lk_meta.json');
+  // Read _lk_meta.json — search inputDir and ancestors
+  const metaPath = findMetaFile(inputDir);
+  if (!metaPath) {
+    throw new Error(
+      `Could not find _lk_meta.json in ${inputDir} or any parent directory. Run lk2md first to generate metadata.`,
+    );
+  }
+
   let meta: LkMeta;
   try {
     const raw = JSON.parse(readFileSync(metaPath, 'utf-8'));
@@ -99,20 +106,9 @@ export function md2lk(
           : mdToProsemirror(section.content);
 
       documents.push({
-        id: docMeta.id as string,
-        name: docMeta.name as string,
-        pos: docMeta.pos as string,
-        type: docMeta.type as string,
-        isFirst: docMeta.isFirst as boolean,
-        isHidden: docMeta.isHidden as boolean,
-        locatorId: docMeta.locatorId as string,
-        createdAt: docMeta.createdAt as string,
-        updatedAt: docMeta.updatedAt as string,
-        transforms: (docMeta.transforms as unknown[]) || [],
-        sources: (docMeta.sources as unknown[]) || [],
-        presentation: docMeta.presentation as { documentType: string },
+        ...(docMeta as Record<string, unknown>),
         content: pmDoc,
-      });
+      } as LkDocument);
     }
 
     // Add skipped documents back (maps, timelines, boards)
@@ -130,7 +126,7 @@ export function md2lk(
     const resource: LkResource = {
       schemaVersion: (lk.schemaVersion as number) || 1,
       id: lk.id as string,
-      name: extractResourceName(filePath, inputDir),
+      name: (lk.name as string) || extractResourceName(filePath, inputDir),
       parentId: lk.parentId as string | undefined,
       pos: lk.pos as string,
       aliases: (frontmatter.aliases as string[]) || [],
@@ -163,6 +159,17 @@ export function md2lk(
 
   compressLk(exportData, outputPath);
   console.log(`Written ${outputPath} (${resources.length} resources)`);
+}
+
+function findMetaFile(startDir: string): string | null {
+  let dir = resolve(startDir);
+  while (true) {
+    const candidate = join(dir, '_lk_meta.json');
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) return null; // reached filesystem root
+    dir = parent;
+  }
 }
 
 function findMdFiles(dir: string): string[] {
