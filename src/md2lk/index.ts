@@ -145,7 +145,7 @@ export function md2lk(
       iconColor: lk.iconColor as string,
       iconGlyph: lk.iconGlyph as string,
       iconShape: lk.iconShape as string,
-      isHidden: lk.isHidden as boolean,
+      isHidden: isSingleFile ? true : (lk.isHidden as boolean),
       isLocked: lk.isLocked as boolean,
       showPropertyBar: lk.showPropertyBar as boolean,
       properties: (lk.properties as LkResource['properties']) || [],
