@@ -621,7 +621,15 @@ class MarkdownParser {
         const { __rows, __syntheticHeader, ...tableAttrs } = meta;
         // If raw rows are stored, use them directly for lossless round-trip
         if (__rows) {
-          return { type: 'table', attrs: tableAttrs, content: __rows };
+          // Ensure all table cells have colspan/rowspan attrs (required by LK import)
+          const patchedRows = (__rows as ProseMirrorNode[]).map((row) => ({
+            ...row,
+            content: row.content?.map((cell) => ({
+              ...cell,
+              attrs: { colspan: 1, rowspan: 1, ...cell.attrs },
+            })),
+          }));
+          return { type: 'table', attrs: tableAttrs, content: patchedRows };
         }
       } catch {}
     }
@@ -631,7 +639,7 @@ class MarkdownParser {
     for (let i = 0; i < rows.length; i++) {
       const rowCells = rows[i].map((cellText) => ({
         type: (i === 0 ? 'tableHeader' : 'tableCell') as string,
-        attrs: {},
+        attrs: { colspan: 1, rowspan: 1 },
         content: [
           { type: 'paragraph' as const, content: parseInline(cellText) },
         ],
@@ -990,9 +998,7 @@ const VALID_LIST_ITEM_TYPES = new Set([
   'bodiedExtension',
 ]);
 
-function sanitizeListItemContent(
-  nodes: ProseMirrorNode[],
-): ProseMirrorNode[] {
+function sanitizeListItemContent(nodes: ProseMirrorNode[]): ProseMirrorNode[] {
   const result: ProseMirrorNode[] = [];
   for (const node of nodes) {
     if (VALID_LIST_ITEM_TYPES.has(node.type)) {

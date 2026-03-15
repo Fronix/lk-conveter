@@ -114,8 +114,16 @@ export function md2lk(
           ? ({} as any)
           : mdToProsemirror(section.content);
 
+      // LK import ignores content for documents with type/documentType "blank",
+      // treating them as empty pages. Rewrite to "page" so content is preserved.
+      const effectiveDocMeta = { ...docMeta };
+      if (docType === 'blank' && sectionContent) {
+        effectiveDocMeta.type = 'page';
+        effectiveDocMeta.presentation = { documentType: 'page' };
+      }
+
       documents.push({
-        ...(docMeta as Record<string, unknown>),
+        ...effectiveDocMeta,
         content: pmDoc,
       } as LkDocument);
     }
