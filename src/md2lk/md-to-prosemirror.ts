@@ -9,6 +9,10 @@ export function mdToProsemirror(markdown: string): ProseMirrorNode {
   const lines = markdown.split('\n');
   const parser = new MarkdownParser(lines);
   const content = parser.parseBlocks();
+  // LK requires at least one child in the doc node
+  if (content.length === 0) {
+    content.push({ type: 'paragraph', content: [] });
+  }
   return { type: 'doc', content };
 }
 
@@ -178,7 +182,7 @@ class MarkdownParser {
     // Panel
     if (directive.startsWith('panel-')) {
       const panelType = directive.slice('panel-'.length);
-      const content = this.parseUntilClose();
+      const content = sanitizeBlockquoteContent(this.parseUntilClose());
       return {
         type: 'panel',
         attrs: { panelType },
@@ -443,7 +447,7 @@ class MarkdownParser {
     }
 
     const subParser = new MarkdownParser(lines);
-    const content = subParser.parseBlocks();
+    const content = sanitizeBlockquoteContent(subParser.parseBlocks());
     return { type: 'blockquote', content };
   }
 
@@ -984,6 +988,43 @@ function marksEqual(
   return true;
 }
 
+// LK's blockquote and panel schemas only allow: paragraph, heading,
+// bulletList, orderedList. Unwrap or convert other block types.
+const VALID_BLOCKQUOTE_TYPES = new Set([
+  'paragraph',
+  'heading',
+  'bulletList',
+  'orderedList',
+]);
+
+function sanitizeBlockquoteContent(
+  nodes: ProseMirrorNode[],
+): ProseMirrorNode[] {
+  const result: ProseMirrorNode[] = [];
+  for (const node of nodes) {
+    if (VALID_BLOCKQUOTE_TYPES.has(node.type)) {
+      result.push(node);
+    } else if (node.type === 'codeBlock') {
+      // Wrap code block text in a paragraph with code mark
+      const text = node.content?.[0]?.text || '';
+      if (text) {
+        result.push({
+          type: 'paragraph',
+          content: [{ type: 'text', text, marks: [{ type: 'code' }] }],
+        });
+      }
+    } else if (node.content) {
+      // Unwrap: insert child nodes (e.g. panel → its paragraphs)
+      result.push(...sanitizeBlockquoteContent(node.content));
+    }
+  }
+  // Ensure at least one child node
+  if (result.length === 0) {
+    result.push({ type: 'paragraph', content: [] });
+  }
+  return result;
+}
+
 // LK's listItem schema only allows: paragraph, bulletList, orderedList,
 // mediaSingle, codeBlock, extension, bodiedExtension.
 // Unwrap disallowed block types (e.g. blockquote, heading) into their content.
@@ -1010,6 +1051,10 @@ function sanitizeListItemContent(nodes: ProseMirrorNode[]): ProseMirrorNode[] {
       // Fallback: wrap text-like nodes in a paragraph
       result.push({ type: 'paragraph', content: [node] });
     }
+  }
+  // Ensure at least one child node
+  if (result.length === 0) {
+    result.push({ type: 'paragraph', content: [] });
   }
   return result;
 }

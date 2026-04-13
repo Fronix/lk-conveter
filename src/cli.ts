@@ -4,6 +4,7 @@ import { basename, dirname, resolve } from 'node:path';
 import { Command } from 'commander';
 import { lk2md } from './lk2md/index.js';
 import { md2lk } from './md2lk/index.js';
+import { obsidian2lk } from './obsidian2lk/index.js';
 import { verify } from './verify.js';
 
 const program = new Command();
@@ -56,6 +57,24 @@ program
     const sourceName = opts.source || inferredName;
     mkdirSync(dirname(outputPath), { recursive: true });
     md2lk(inputPath, outputPath, sourceName);
+  });
+
+program
+  .command('obsidian2lk')
+  .description('Import an Obsidian vault into a .lk file')
+  .argument('<vault-path>', 'Path to Obsidian vault root directory')
+  .option(
+    '-o, --output <file>',
+    'Output .lk file (default: for-import/<vault-name>.lk)',
+  )
+  .action((input: string, opts: { output?: string }) => {
+    const inputPath = resolve(input);
+    const vaultName = basename(inputPath);
+    const outputPath = opts.output
+      ? resolve(opts.output)
+      : resolve('for-import', `${vaultName}.lk`);
+    mkdirSync(dirname(outputPath), { recursive: true });
+    obsidian2lk(inputPath, outputPath);
   });
 
 program
