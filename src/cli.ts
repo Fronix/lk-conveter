@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { Command } from 'commander';
 import { lk2md } from './lk2md/index.js';
+import { lk2obsidian } from './lk2obsidian/index.js';
 import { md2lk } from './md2lk/index.js';
 import { obsidian2lk } from './obsidian2lk/index.js';
 import { verify } from './verify.js';
@@ -75,6 +76,24 @@ program
       : resolve('for-import', `${vaultName}.lk`);
     mkdirSync(dirname(outputPath), { recursive: true });
     obsidian2lk(inputPath, outputPath);
+  });
+
+program
+  .command('lk2obsidian')
+  .description('Convert .lk file(s) to Obsidian-compatible markdown vaults')
+  .argument(
+    '<input...>',
+    'Path(s) to .lk file(s) — supports globs like imports/*.lk',
+  )
+  .option('-o, --output <dir>', 'Output directory (default: current directory)')
+  .action((inputs: string[], opts: { output?: string }) => {
+    const lkInputs = inputs.map((input) => {
+      const inputPath = resolve(input);
+      const sourceName = basename(inputPath, '.lk');
+      const outputDir = opts.output ? resolve(opts.output) : resolve('.');
+      return { inputPath, outputDir, sourceName };
+    });
+    lk2obsidian(lkInputs);
   });
 
 program
