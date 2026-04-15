@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import type {
@@ -11,6 +12,19 @@ import type {
 import { compressLk } from './compress.js';
 import { parseFrontmatter, splitDocumentSections } from './frontmatter.js';
 import { mdToProsemirror } from './md-to-prosemirror.js';
+import {
+  buildEmptyDocument,
+  buildFolderToIdMap,
+  buildNewDocument,
+  buildNewResource,
+  isNewFile,
+  newPos,
+  normalizeStringArray,
+  type ParsedFile,
+  relPath,
+  resolveParentId,
+  synthesizeFolderEntries,
+} from './synthesize.js';
 
 export function md2lk(
   inputPath: string,
@@ -21,38 +35,10 @@ export function md2lk(
   const inputStat = statSync(inputPath);
   const inputDir = inputStat.isDirectory() ? inputPath : dirname(inputPath);
 
-  // Read _lk_meta.json — search inputDir and ancestors
+  // Read _lk_meta.json — search inputDir and ancestors. Missing meta is
+  // tolerated when all input files are new (synthesized from scratch).
   const metaPath = findMetaFile(inputDir);
-  if (!metaPath) {
-    throw new Error(
-      `Could not find _lk_meta.json in ${inputDir} or any parent directory. Run lk2md first to generate metadata.`,
-    );
-  }
-
-  let meta: LkMeta;
-  try {
-    const raw = JSON.parse(readFileSync(metaPath, 'utf-8'));
-    if (raw.sources) {
-      // Multi-source format
-      const multiMeta = raw as LkMetaMulti;
-      const sourceMeta = multiMeta.sources[sourceName];
-      if (!sourceMeta) {
-        const available = Object.keys(multiMeta.sources).join(', ');
-        throw new Error(
-          `Source "${sourceName}" not found in ${metaPath}. Available: ${available}`,
-        );
-      }
-      meta = sourceMeta;
-    } else {
-      // Old single-source format
-      meta = raw as LkMeta;
-    }
-  } catch (e) {
-    if (e instanceof Error && e.message.includes('not found in')) throw e;
-    throw new Error(
-      `Could not read ${metaPath}. Run lk2md first to generate metadata.`,
-    );
-  }
+  const meta = loadMeta(metaPath, sourceName);
 
   const isSingleFile = inputStat.isFile();
   console.log(`Reading markdown files from ${inputPath}...`);
@@ -61,106 +47,93 @@ export function md2lk(
   const mdFiles = isSingleFile ? [inputPath] : findMdFiles(inputDir);
   console.log(`Found ${mdFiles.length} markdown files`);
 
-  // Parse each file into a resource
+  // Pre-parse all files so we can build folder mappings before processing
+  const parsedFiles: ParsedFile[] = mdFiles.map((filePath) => {
+    const content = readFileSync(filePath, 'utf-8');
+    return { filePath, ...parseFrontmatter(content) };
+  });
+
+  // Filter parsed files for processing — same source filter as before, but
+  // applied here so synthesis only considers files we'd actually emit.
+  const inScope = parsedFiles.filter((file) => {
+    const lk = file.frontmatter.lk as Record<string, unknown> | undefined;
+    if (!lk?.id) return true; // new files have no source — always in scope
+    if (isSingleFile) return true; // explicit file pick bypasses source filter
+    const fileSource = lk.source as string | undefined;
+    if (fileSource && fileSource !== sourceName) {
+      console.warn(
+        `Skipping ${file.filePath}: source "${fileSource}" does not match "${sourceName}"`,
+      );
+      return false;
+    }
+    return true;
+  });
+
+  const newFiles = inScope.filter(isNewFile);
+  const folderToId = buildFolderToIdMap(inScope);
+  const syntheticFolders = synthesizeFolderEntries(
+    newFiles,
+    folderToId,
+    inputDir,
+  );
+
+  if (newFiles.length > 0 || syntheticFolders.size > 0) {
+    console.log(
+      `Synthesizing metadata for ${newFiles.length} new file(s)` +
+        (syntheticFolders.size > 0
+          ? ` and ${syntheticFolders.size} new folder(s)`
+          : ''),
+    );
+  }
+
   const resources: LkResource[] = [];
 
-  for (const filePath of mdFiles) {
-    const content = readFileSync(filePath, 'utf-8');
-    const { frontmatter, body } = parseFrontmatter(content);
+  // Process files first — new files that act as a folder self-file will
+  // claim (and remove) the matching synthesized folder slot so we don't
+  // emit two resources sharing the same id.
+  for (const file of inScope) {
+    const { filePath, frontmatter, body } = file;
     const lk = frontmatter.lk as Record<string, unknown> | undefined;
 
-    if (!lk || !lk.id) {
-      console.warn(`Skipping ${filePath}: no lk metadata in frontmatter`);
-      continue;
-    }
-
-    // Filter by source — skip resources from other .lk exports
-    // When converting a single file, skip the filter (user explicitly chose this file)
-    const fileSource = lk.source as string | undefined;
-    if (!isSingleFile && fileSource && fileSource !== sourceName) {
-      console.warn(
-        `Skipping ${filePath}: source "${fileSource}" does not match "${sourceName}"`,
+    if (!lk?.id) {
+      resources.push(
+        buildResourceFromNewFile(
+          filePath,
+          frontmatter,
+          body,
+          inputDir,
+          folderToId,
+          syntheticFolders,
+          isSingleFile,
+        ),
       );
       continue;
     }
 
-    // Split body into document sections
-    const sections = splitDocumentSections(body);
-    const docMetas = (lk.documents as Array<Record<string, unknown>>) || [];
+    resources.push(
+      buildResourceFromExistingFile(
+        filePath,
+        frontmatter,
+        body,
+        meta,
+        isSingleFile,
+      ),
+    );
+  }
 
-    // Build documents
-    const documents: LkDocument[] = [];
-
-    for (let i = 0; i < docMetas.length; i++) {
-      const docMeta = docMetas[i];
-      const section = sections[i];
-
-      if (!section) {
-        console.warn(
-          `Missing section ${i} for document ${docMeta.name} in ${filePath}`,
-        );
-        continue;
-      }
-
-      // Convert markdown content to ProseMirror
-      process.stderr.write(`  Converting ${filePath} doc ${i}...\r`);
-      const docType = (docMeta.presentation as { documentType: string })
-        ?.documentType;
-      const sectionContent = section.content.trim();
-
-      // Blank documents with no real content should stay as empty objects
-      const pmDoc =
-        docType === 'blank' && !sectionContent
-          ? ({} as any)
-          : mdToProsemirror(section.content);
-
-      // LK import ignores content for documents with type/documentType "blank",
-      // treating them as empty pages. Rewrite to "page" so content is preserved.
-      const effectiveDocMeta = { ...docMeta };
-      if (docType === 'blank' && sectionContent) {
-        effectiveDocMeta.type = 'page';
-        effectiveDocMeta.presentation = { documentType: 'page' };
-      }
-
-      documents.push({
-        ...effectiveDocMeta,
-        content: pmDoc,
-      } as LkDocument);
-    }
-
-    // Add skipped documents back (maps, timelines, boards)
-    const resourceId = lk.id as string;
-    for (const [_key, skipped] of Object.entries(meta.skippedDocuments)) {
-      if (skipped.resourceId === resourceId) {
-        documents.push(skipped.document);
-      }
-    }
-
-    // Sort documents by pos
-    documents.sort((a, b) => a.pos.localeCompare(b.pos));
-
-    // Build resource
-    const resource: LkResource = {
-      schemaVersion: (lk.schemaVersion as number) || 1,
-      id: lk.id as string,
-      name: (lk.name as string) || extractResourceName(filePath, inputDir),
-      parentId: lk.parentId as string | undefined,
-      pos: lk.pos as string,
-      aliases: (frontmatter.aliases as string[]) || [],
-      tags: normalizeTags(frontmatter.tags),
-      banner: lk.banner as LkResource['banner'],
-      createdBy: lk.createdBy as string | undefined,
-      iconColor: lk.iconColor as string,
-      iconGlyph: lk.iconGlyph as string,
-      iconShape: lk.iconShape as string,
-      isHidden: isSingleFile ? true : (lk.isHidden as boolean),
-      isLocked: lk.isLocked as boolean,
-      showPropertyBar: lk.showPropertyBar as boolean,
-      properties: (lk.properties as LkResource['properties']) || [],
-      documents,
-    };
-
-    resources.push(resource);
+  // Emit any synthetic folder resources that were not claimed by a self-file.
+  for (const entry of syntheticFolders.values()) {
+    resources.push(
+      buildNewResource({
+        id: entry.id,
+        name: entry.name,
+        parentId: entry.parentId,
+        pos: newPos(entry.name),
+        tags: [],
+        aliases: [],
+        documents: [buildEmptyDocument()],
+      }),
+    );
   }
 
   // Build export
@@ -176,6 +149,188 @@ export function md2lk(
 
   compressLk(exportData, outputPath);
   console.log(`Written ${outputPath} (${resources.length} resources)`);
+}
+
+function buildResourceFromExistingFile(
+  filePath: string,
+  frontmatter: Record<string, unknown>,
+  body: string,
+  meta: LkMeta,
+  isSingleFile: boolean,
+): LkResource {
+  const lk = frontmatter.lk as Record<string, unknown>;
+
+  const sections = splitDocumentSections(body);
+  const docMetas = (lk.documents as Array<Record<string, unknown>>) || [];
+
+  const documents: LkDocument[] = [];
+
+  for (let i = 0; i < docMetas.length; i++) {
+    const docMeta = docMetas[i];
+    const section = sections[i];
+
+    if (!section) {
+      console.warn(
+        `Missing section ${i} for document ${docMeta.name} in ${filePath}`,
+      );
+      continue;
+    }
+
+    process.stderr.write(`  Converting ${filePath} doc ${i}...\r`);
+    const docType = (docMeta.presentation as { documentType: string })
+      ?.documentType;
+    const sectionContent = section.content.trim();
+
+    const pmDoc =
+      docType === 'blank' && !sectionContent
+        ? ({} as LkDocument['content'])
+        : mdToProsemirror(section.content);
+
+    const effectiveDocMeta = { ...docMeta };
+    if (docType === 'blank' && sectionContent) {
+      effectiveDocMeta.type = 'page';
+      effectiveDocMeta.presentation = { documentType: 'page' };
+    }
+
+    documents.push({
+      ...effectiveDocMeta,
+      content: pmDoc,
+    } as LkDocument);
+  }
+
+  // Add skipped documents back (maps, timelines, boards)
+  const resourceId = lk.id as string;
+  for (const [_key, skipped] of Object.entries(meta.skippedDocuments)) {
+    if (skipped.resourceId === resourceId) {
+      documents.push(skipped.document);
+    }
+  }
+
+  documents.sort((a, b) => a.pos.localeCompare(b.pos));
+
+  return {
+    schemaVersion: (lk.schemaVersion as number) || 1,
+    id: resourceId,
+    name: (lk.name as string) || extractResourceName(filePath),
+    parentId: lk.parentId as string | undefined,
+    pos: lk.pos as string,
+    aliases: (frontmatter.aliases as string[]) || [],
+    tags: normalizeTags(frontmatter.tags),
+    banner: lk.banner as LkResource['banner'],
+    createdBy: lk.createdBy as string | undefined,
+    iconColor: lk.iconColor as string,
+    iconGlyph: lk.iconGlyph as string,
+    iconShape: lk.iconShape as string,
+    isHidden: isSingleFile ? true : (lk.isHidden as boolean),
+    isLocked: lk.isLocked as boolean,
+    showPropertyBar: lk.showPropertyBar as boolean,
+    properties: (lk.properties as LkResource['properties']) || [],
+    documents,
+  };
+}
+
+function buildResourceFromNewFile(
+  filePath: string,
+  frontmatter: Record<string, unknown>,
+  body: string,
+  inputDir: string,
+  folderToId: Map<string, string>,
+  syntheticFolders: ReturnType<typeof synthesizeFolderEntries>,
+  isSingleFile: boolean,
+): LkResource {
+  const partialLk =
+    (frontmatter.lk as Record<string, unknown> | undefined) ?? {};
+
+  const fileBase = basename(filePath, '.md');
+  const folder = resolve(dirname(filePath));
+
+  // If this new file is the self-file for an already-synthesized folder
+  // (Folder/Folder.md), adopt that folder's id so any children link to us
+  // instead of a phantom folder resource.
+  let id: string;
+  let parentId: string | undefined;
+  const synthEntry =
+    basename(folder) === fileBase ? syntheticFolders.get(folder) : undefined;
+  if (synthEntry) {
+    id = synthEntry.id;
+    parentId = synthEntry.parentId;
+    syntheticFolders.delete(folder);
+  } else {
+    id = (partialLk.id as string | undefined) ?? randomUUID();
+    parentId =
+      (partialLk.parentId as string | undefined) ??
+      resolveParentId(filePath, folderToId, syntheticFolders, inputDir);
+  }
+
+  const name =
+    (typeof frontmatter.title === 'string' && frontmatter.title) ||
+    (partialLk.name as string | undefined) ||
+    fileBase;
+
+  process.stderr.write(`  Converting ${relPath(filePath, inputDir)} (new)\r`);
+  const pmDoc = body.trim()
+    ? mdToProsemirror(body)
+    : ({
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [] }],
+      } as LkDocument['content']);
+
+  const resource = buildNewResource({
+    id,
+    name,
+    parentId,
+    pos: (partialLk.pos as string | undefined) ?? newPos(name),
+    tags: normalizeTags(frontmatter.tags ?? frontmatter.tag),
+    aliases: normalizeStringArray(frontmatter.aliases),
+    documents: [buildNewDocument(pmDoc)],
+  });
+  if (isSingleFile) resource.isHidden = true;
+  return resource;
+}
+
+/**
+ * Load _lk_meta.json. When missing or unreadable for a fully-new directory,
+ * fall back to a synthetic empty meta so md2lk still works.
+ */
+function loadMeta(metaPath: string | null, sourceName: string): LkMeta {
+  if (!metaPath) {
+    console.log(
+      'No _lk_meta.json found — generating a fresh export header (treating all files as new).',
+    );
+    return defaultMeta();
+  }
+  try {
+    const raw = JSON.parse(readFileSync(metaPath, 'utf-8'));
+    if (raw.sources) {
+      const multiMeta = raw as LkMetaMulti;
+      const sourceMeta = multiMeta.sources[sourceName];
+      if (!sourceMeta) {
+        const available = Object.keys(multiMeta.sources).join(', ');
+        throw new Error(
+          `Source "${sourceName}" not found in ${metaPath}. Available: ${available}`,
+        );
+      }
+      return sourceMeta;
+    }
+    return raw as LkMeta;
+  } catch (e) {
+    if (e instanceof Error && e.message.includes('not found in')) throw e;
+    throw new Error(
+      `Could not read ${metaPath}. Run lk2md first to generate metadata.`,
+    );
+  }
+}
+
+function defaultMeta(): LkMeta {
+  return {
+    version: 1,
+    exportId: randomUUID(),
+    exportedAt: new Date().toISOString(),
+    calendars: [],
+    resourceCount: 0,
+    hash: '',
+    skippedDocuments: {},
+  };
 }
 
 function findMetaFile(startDir: string): string | null {
@@ -208,8 +363,7 @@ function findMdFiles(dir: string): string[] {
   return results;
 }
 
-function extractResourceName(filePath: string, _baseDir: string): string {
-  // The resource name is the filename without .md extension
+function extractResourceName(filePath: string): string {
   return basename(filePath, '.md');
 }
 
