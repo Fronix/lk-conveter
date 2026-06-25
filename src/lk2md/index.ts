@@ -44,7 +44,7 @@ export function lk2md(
     // Separate convertible and skipped documents
     const convertibleDocs: LkDocument[] = [];
     for (const doc of resource.documents) {
-      if (SKIPPED_DOC_TYPES.has(doc.presentation.documentType)) {
+      if (SKIPPED_DOC_TYPES.has(doc.type)) {
         const key = `${resource.id}:${doc.id}`;
         skippedDocuments[key] = { resourceId: resource.id, document: doc };
         skippedCount++;

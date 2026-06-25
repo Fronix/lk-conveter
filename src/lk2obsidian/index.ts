@@ -67,7 +67,7 @@ export function lk2obsidian(inputs: LkInput[]): void {
       // Separate convertible and skipped documents
       const convertibleDocs: LkDocument[] = [];
       for (const doc of resource.documents) {
-        if (SKIPPED_DOC_TYPES.has(doc.presentation.documentType)) {
+        if (SKIPPED_DOC_TYPES.has(doc.type)) {
           skippedCount++;
         } else {
           convertibleDocs.push(doc);

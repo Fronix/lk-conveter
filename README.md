@@ -145,6 +145,8 @@ lk-converter lk2md <path-to-.lk-file> [-o output-dir]
 
 Extracts all resources and documents into a directory of markdown files with YAML frontmatter. Preserves all LK metadata in a `lk:` namespace and HTML comments so the result can be converted back to `.lk` losslessly.
 
+> **Note:** LegendKeeper now also exports plain `.json` files (the same payload as a `.lk`, just not gzipped). Every command that takes a `.lk` file accepts a `.json` export as well — the format is auto-detected.
+
 Supports multiple files and globs:
 
 ```bash

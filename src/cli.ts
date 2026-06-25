@@ -8,6 +8,12 @@ import { md2lk } from './md2lk/index.js';
 import { obsidian2lk } from './obsidian2lk/index.js';
 import { verify } from './verify.js';
 
+// Derive a source name from an export path, stripping the `.lk` or `.json`
+// extension (LK now exports plain JSON as well as gzipped `.lk`).
+function stripExportExt(inputPath: string): string {
+  return basename(inputPath).replace(/\.(lk|json)$/i, '');
+}
+
 const program = new Command();
 
 program
@@ -17,16 +23,16 @@ program
 
 program
   .command('lk2md')
-  .description('Convert .lk file(s) to markdown files')
+  .description('Convert .lk/.json file(s) to markdown files')
   .argument(
     '<input...>',
-    'Path(s) to .lk file(s) — supports globs like imports/*.lk',
+    'Path(s) to .lk or .json export file(s) — supports globs like imports/*.lk',
   )
   .option('-o, --output <dir>', 'Output directory (default: current directory)')
   .action((inputs: string[], opts: { output?: string }) => {
     for (const input of inputs) {
       const inputPath = resolve(input);
-      const sourceName = basename(inputPath, '.lk');
+      const sourceName = stripExportExt(inputPath);
       const outputDir = opts.output ? resolve(opts.output) : resolve('.');
       lk2md(inputPath, outputDir, sourceName);
     }
@@ -80,16 +86,18 @@ program
 
 program
   .command('lk2obsidian')
-  .description('Convert .lk file(s) to Obsidian-compatible markdown vaults')
+  .description(
+    'Convert .lk/.json file(s) to Obsidian-compatible markdown vaults',
+  )
   .argument(
     '<input...>',
-    'Path(s) to .lk file(s) — supports globs like imports/*.lk',
+    'Path(s) to .lk or .json export file(s) — supports globs like imports/*.lk',
   )
   .option('-o, --output <dir>', 'Output directory (default: current directory)')
   .action((inputs: string[], opts: { output?: string }) => {
     const lkInputs = inputs.map((input) => {
       const inputPath = resolve(input);
-      const sourceName = basename(inputPath, '.lk');
+      const sourceName = stripExportExt(inputPath);
       const outputDir = opts.output ? resolve(opts.output) : resolve('.');
       return { inputPath, outputDir, sourceName };
     });
@@ -98,8 +106,8 @@ program
 
 program
   .command('verify')
-  .description('Verify round-trip integrity of .lk file(s)')
-  .argument('<input...>', 'Path(s) to .lk file(s) to verify')
+  .description('Verify round-trip integrity of .lk/.json file(s)')
+  .argument('<input...>', 'Path(s) to .lk or .json export file(s) to verify')
   .action((inputs: string[]) => {
     for (const input of inputs) {
       const inputPath = resolve(input);

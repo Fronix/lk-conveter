@@ -177,8 +177,13 @@ function buildResourceFromExistingFile(
     }
 
     process.stderr.write(`  Converting ${filePath} doc ${i}...\r`);
-    const docType = (docMeta.presentation as { documentType: string })
-      ?.documentType;
+    // LK now drives the document kind from `type` (the `presentation`
+    // object is no longer emitted); fall back to the legacy location for
+    // markdown produced by older exports.
+    const docType =
+      (docMeta.type as string | undefined) ??
+      (docMeta.presentation as { documentType: string } | undefined)
+        ?.documentType;
     const sectionContent = section.content.trim();
 
     const pmDoc =
@@ -189,7 +194,11 @@ function buildResourceFromExistingFile(
     const effectiveDocMeta = { ...docMeta };
     if (docType === 'blank' && sectionContent) {
       effectiveDocMeta.type = 'page';
-      effectiveDocMeta.presentation = { documentType: 'page' };
+      // Keep the legacy `presentation` in sync only if it was present in the
+      // source; new exports omit it entirely, so don't synthesize one.
+      if (effectiveDocMeta.presentation) {
+        effectiveDocMeta.presentation = { documentType: 'page' };
+      }
     }
 
     documents.push({
@@ -334,14 +343,54 @@ function defaultMeta(): LkMeta {
 }
 
 function findMetaFile(startDir: string): string | null {
+  // Prefer the closest meta in startDir or an ancestor.
   let dir = resolve(startDir);
   while (true) {
     const candidate = join(dir, '_lk_meta.json');
     if (existsSync(candidate)) return candidate;
     const parent = dirname(dir);
-    if (parent === dir) return null; // reached filesystem root
+    if (parent === dir) break; // reached filesystem root
     dir = parent;
   }
+
+  // Fallback: lk2md nests its output (and the meta) under a single root
+  // resource folder, so when md2lk is pointed at the parent of that folder
+  // the meta lives in a child dir. Search descendants breadth-first and use
+  // the shallowest _lk_meta.json found.
+  return findMetaInDescendants(resolve(startDir));
+}
+
+function findMetaInDescendants(startDir: string): string | null {
+  let frontier = [startDir];
+  // Bound the depth so a stray vault deep in the tree can't cause a huge scan.
+  for (let depth = 0; depth < 4 && frontier.length > 0; depth++) {
+    const next: string[] = [];
+    for (const dir of frontier) {
+      let entries: string[];
+      try {
+        entries = readdirSync(dir);
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        const full = join(dir, entry);
+        let stat: ReturnType<typeof statSync>;
+        try {
+          stat = statSync(full);
+        } catch {
+          continue;
+        }
+        if (stat.isDirectory()) {
+          if (existsSync(join(full, '_lk_meta.json'))) {
+            return join(full, '_lk_meta.json');
+          }
+          next.push(full);
+        }
+      }
+    }
+    frontier = next;
+  }
+  return null;
 }
 
 function findMdFiles(dir: string): string[] {

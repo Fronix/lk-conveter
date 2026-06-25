@@ -41,6 +41,10 @@ export interface LkProperty {
   pos: string;
   title: string;
   type: string;
+  // Newer LK exports carry property values and visibility flags
+  data?: unknown;
+  isHidden?: boolean;
+  isTitleHidden?: boolean;
 }
 
 export interface LkDocument {
@@ -55,9 +59,11 @@ export interface LkDocument {
   updatedAt: string;
   transforms: unknown[];
   sources: unknown[];
-  presentation: LkPresentation;
+  // Older LK exports always included `presentation`; newer exports drive the
+  // document kind from `type` and omit `presentation` for most documents.
+  presentation?: LkPresentation;
   content: ProseMirrorNode;
-  // Allow extra properties from LK (e.g. isFullWidth, calendarId)
+  // Allow extra properties from LK (e.g. isFullWidth, calendarId, map)
   [key: string]: unknown;
 }
 

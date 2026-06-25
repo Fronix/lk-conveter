@@ -168,7 +168,6 @@ export function buildNewDocument(content: LkDocument['content']): LkDocument {
     updatedAt: now,
     transforms: [],
     sources: [],
-    presentation: { documentType: 'page' },
     content,
   };
 }
