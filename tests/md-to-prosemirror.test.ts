@@ -172,6 +172,18 @@ describe('mdToProsemirror', () => {
     expect(mention?.attrs?.text).toBe('John');
   });
 
+  it('degrades a mention with an empty target id to plain text', () => {
+    // LK crashes on import for mentions with no id (meta.get("").clock),
+    // so unlinked mentions must become plain text, keeping the display name.
+    const md =
+      'See @[Captain Drenna Forgewake](lk://) <!-- lk-mention: {"id":"","alias":""} --> here\n';
+    const nodes = getContent(md);
+    const mention = nodes[0].content?.find((n) => n.type === 'mention');
+    expect(mention).toBeUndefined();
+    const text = nodes[0].content?.map((n) => n.text).join('');
+    expect(text).toContain('Captain Drenna Forgewake');
+  });
+
   it('parses an image with media comment', () => {
     const md = '<!-- lk-media: {"media":{"id":"img1","type":"external"},"single":{"layout":"center"}} -->\n![A photo](https://example.com/img.png)\n';
     const nodes = getContent(md);

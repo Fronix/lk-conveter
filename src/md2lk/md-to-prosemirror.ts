@@ -784,7 +784,16 @@ function parseInline(text: string): ProseMirrorNode[] {
           attrs = { ...attrs, ...meta, text: mentionMatch[1] };
         } catch {}
       }
-      nodes.push({ type: 'mention', attrs });
+      // A mention with no target id is un-importable: LK looks up
+      // meta.get(id) on arrival and dereferences `.clock`, which throws on
+      // an empty id ("can't access property 'clock', e.meta.get(...) is
+      // undefined"). Degrade these broken/unlinked mentions to plain text,
+      // keeping the display name.
+      if (!attrs.id) {
+        nodes.push({ type: 'text', text: mentionMatch[1] });
+      } else {
+        nodes.push({ type: 'mention', attrs });
+      }
       remaining = remaining.slice(mentionMatch[0].length);
       continue;
     }
